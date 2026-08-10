@@ -1,0 +1,35 @@
+# Batch media pipeline on a memory-constrained host.
+#
+# The host is a 2 GB single instance shared with latency-sensitive services.
+# This unit is the low-priority tenant: it yields CPU and IO, and it is capped
+# so that it can never take the host down.
+[Unit]
+Description=Daily media pipeline
+
+[Service]
+Type=oneshot
+User=app
+WorkingDirectory=/opt/app
+ExecStart=/opt/app/run_daily.sh
+
+# Fit or die fast. MemoryHigh is deliberately ABSENT.
+#
+# MemoryHigh throttles rather than kills. With both set, a process whose
+# allocator high-water mark sat between High and Max was throttled
+# indefinitely: it never grew enough to hit Max and be killed, and never
+# shrank enough to run. It froze for ~10 hours and the daily output was
+# simply missing. See incidents/throttle-band-livelock.md.
+MemoryMax=1400M
+MemorySwapMax=256M
+OOMPolicy=continue
+
+# Lowest-priority tenant. The always-on services win every contended resource.
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=20
+
+# Must exceed the in-script idle wait plus one full render.
+TimeoutStartSec=6h
+
+[Install]
+WantedBy=multi-user.target

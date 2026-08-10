@@ -1,0 +1,14 @@
+# Timer, not cron. Cron gives no memory accounting and no per-job cgroup, so a
+# runaway job takes the host with it. A timer-driven unit inherits the caps in
+# pipeline.service.example.
+[Unit]
+Description=Run the daily media pipeline
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+Persistent=true
+# Avoid every host in a fleet starting on the same second.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,21 @@
+# Latency-sensitive always-on service — the priority tenant.
+#
+# Deliberately uncapped and at normal priority: capping it would trade a
+# visible, immediate failure for a silent, intermittent one. Batch work is
+# what gets constrained instead.
+[Unit]
+Description=Always-on service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=app
+WorkingDirectory=/opt/service
+ExecStart=/opt/service/.venv/bin/python -u main.py
+Restart=always
+RestartSec=10
+Nice=0
+
+[Install]
+WantedBy=multi-user.target
