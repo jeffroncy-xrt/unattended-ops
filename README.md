@@ -10,7 +10,7 @@ cloud instance, unattended, without them taking each other down.
 
 ## The host
 
-A single 2 GB cloud instance runs, concurrently:
+A single small VPS (4 vCPU / 8 GB, ~EUR7/mo) runs, concurrently:
 
 - **2 always-on services** — latency-sensitive, uncapped, normal priority
 - **3 scheduled pipelines** — batch video work, memory-capped, lowest priority
@@ -20,22 +20,38 @@ across all three pipelines with no manual intervention.
 
 ## Tiered resource governance
 
-The instance has less RAM than a single render wants. That is a scheduling
-problem, not a hardware problem, and it is solved by deciding in advance who
-loses when resources are contended.
+Deciding in advance who loses when resources are contended is what keeps five
+workloads on one host from taking each other down.
+
+These ceilings were originally sized for a **1.9 GB** host, where a single render
+genuinely could exhaust the machine — see `incidents/`. After migrating to an
+8 GB host they were raised: measured, the always-on services total ~362 MB and
+~6.9 GB is free, so the old ceilings had stopped protecting the host and started
+risking OOM-kills of renders that would otherwise have finished. A cap should
+bound a runaway, not strangle normal work.
 
 | Tier | Memory | Swap | Priority | Rationale |
 |---|---|---|---|---|
 | Always-on services | uncapped | uncapped | `Nice=0` | Capping trades a visible failure for a silent one |
-| Batch pipeline A | `MemoryMax=1400M` | `256M` | `Nice=19`, `idle` IO | Heaviest render; the ceiling is the point |
-| Batch pipeline B | `MemoryMax=1200M` | `256M` | `Nice=19`, `idle` IO | |
-| Batch pipeline C | `MemoryMax=800M` | `256M` | `Nice=19`, `idle` IO | Lightest job, tightest cap |
+| Batch pipeline A | `MemoryMax=3000M` | `256M` | `Nice=19`, `idle` IO | Heaviest render; the ceiling bounds a runaway |
+| Batch pipeline B | `MemoryMax=2500M` | `256M` | `Nice=19`, `idle` IO | Measured peak ~883 MB |
+| Batch pipeline C | `MemoryMax=1500M` | `256M` | `Nice=19`, `idle` IO | Lightest job, tightest cap |
 
 The batch jobs also stand down if a sibling pipeline is already running, so two
 renders never overlap on one host.
 
+`MemorySwapMax` is deliberately NOT raised alongside them: swap thrash is the
+same failure shape as the throttle-band livelock in `incidents/`.
+
 See `systemd/` for the units, with the reasoning preserved in comments —
 including why `MemoryHigh` is deliberately absent.
+
+## Migrating between providers
+
+This estate has run on three providers in a year. `migrations/three-hosts-one-year.md`
+covers what each move actually cost — the state that lives outside version control,
+cutting over without double-publishing, and the security posture that turned out to
+be a property of the old provider rather than of any configuration.
 
 ## Deploying without drift
 
