@@ -10,34 +10,48 @@ cloud instance, unattended, without them taking each other down.
 
 ## The host
 
-A single 8 GB cloud instance runs, concurrently:
+A single small VPS (4 vCPU / 8 GB, ~EUR7/mo) runs, concurrently:
 
 - **2 always-on services** — latency-sensitive, uncapped, normal priority
 - **3 scheduled pipelines** — batch video work, memory-capped, lowest priority
 
-All three pipelines publish daily on schedule with no manual intervention.
-The host runs for weeks at a time; the only planned interruptions are kernel
-patches, after which every service and timer comes back on its own.
+Measured 2026-08-10: **uptime 5 weeks 2 days**, publishing daily on schedule
+across all three pipelines with no manual intervention.
 
 ## Tiered resource governance
 
-A video render will take whatever memory it is given, and it shares the host
-with services that must not be interrupted. That is a scheduling problem, not a
-hardware problem, and it is solved by deciding in advance who loses when
-resources are contended.
+Deciding in advance who loses when resources are contended is what keeps five
+workloads on one host from taking each other down.
+
+These ceilings were originally sized for a **1.9 GB** host, where a single render
+genuinely could exhaust the machine — see `incidents/`. After migrating to an
+8 GB host they were raised: measured, the always-on services total ~362 MB and
+~6.9 GB is free, so the old ceilings had stopped protecting the host and started
+risking OOM-kills of renders that would otherwise have finished. A cap should
+bound a runaway, not strangle normal work.
 
 | Tier | Memory | Swap | Priority | Rationale |
 |---|---|---|---|---|
 | Always-on services | uncapped | uncapped | `Nice=0` | Capping trades a visible failure for a silent one |
-| Batch pipeline A | `MemoryMax=3000M` | `256M` | `Nice=19`, `idle` IO | Heaviest render; the ceiling is the point |
-| Batch pipeline B | `MemoryMax=2500M` | `256M` | `Nice=19`, `idle` IO | |
+| Batch pipeline A | `MemoryMax=3000M` | `256M` | `Nice=19`, `idle` IO | Heaviest render; the ceiling bounds a runaway |
+| Batch pipeline B | `MemoryMax=2500M` | `256M` | `Nice=19`, `idle` IO | Measured peak ~883 MB |
 | Batch pipeline C | `MemoryMax=1500M` | `256M` | `Nice=19`, `idle` IO | Lightest job, tightest cap |
 
 The batch jobs also stand down if a sibling pipeline is already running, so two
 renders never overlap on one host.
 
+`MemorySwapMax` is deliberately NOT raised alongside them: swap thrash is the
+same failure shape as the throttle-band livelock in `incidents/`.
+
 See `systemd/` for the units, with the reasoning preserved in comments —
 including why `MemoryHigh` is deliberately absent.
+
+## Migrating between providers
+
+This estate has run on three providers in a year. `migrations/three-hosts-one-year.md`
+covers what each move actually cost — the state that lives outside version control,
+cutting over without double-publishing, and the security posture that turned out to
+be a property of the old provider rather than of any configuration.
 
 ## Deploying without drift
 
@@ -68,18 +82,13 @@ Two write-ups, because unattended systems are judged on how they fail:
 
 ## Cloud history
 
-Services previously ran on **Azure**, were consolidated onto a **single AWS EC2
-instance** to cut cost — from several always-on instances down to one — and were
-later migrated again to a **different cloud provider**, which cut the monthly
-bill by roughly 60% for more RAM and more vCPU than the instance it replaced.
-Both moves were plain cost engineering: the workload is batch video and can live
-anywhere, so it lives wherever it is cheapest to keep running.
-
-Some of the Azure work never reached production; the consolidations, the
-migration and everything else described here did.
+Services previously ran on **Azure** and were consolidated onto a **single AWS
+EC2 instance** to cut cost — from several always-on instances down to one, with
+scheduled work packed onto the same host under the resource tiers above. Some
+of the Azure work never reached production; the consolidation and everything
+described here did.
 
 ## Stack
 
 Ubuntu, systemd (units, timers, cgroup resource control), bash, Python,
-ffmpeg, Linux cloud instances (Azure, AWS EC2, and current host),
-private mesh networking for administrative access.
+ffmpeg, AWS EC2, private mesh networking for administrative access.
